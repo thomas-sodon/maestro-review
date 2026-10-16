@@ -1,0 +1,102 @@
+name: maestro-review
+description: AI code review for a GitHub pull request, powered by the Claude Agent SDK.
+author: thomas-sodon
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  anthropic-api-key:
+    description: Anthropic API key. Provide this or claude-code-oauth-token.
+    required: false
+    default: ""
+  claude-code-oauth-token:
+    description: Claude Code OAuth token. Provide this or anthropic-api-key.
+    required: false
+    default: ""
+  github-token:
+    description: Token the gh CLI uses to read the PR and post review comments / issues.
+    required: false
+    default: ${{ github.token }}
+  repo:
+    description: Repository in owner/repo form.
+    required: false
+    default: ${{ github.repository }}
+  pr-number:
+    description: Pull request number. Defaults to the PR that triggered the workflow.
+    required: false
+    default: ${{ github.event.pull_request.number }}
+  mode:
+    description: "'review' (review the diff and post findings) or 'replies' (read-only check that every reviewer finding has a reply; needs no Claude credential)."
+    required: false
+    default: review
+  dry-run:
+    description: "'true' prints findings to the log instead of posting them."
+    required: false
+    default: "false"
+  max-diff-chars:
+    description: Maximum diff characters sent to the model (empty = tool default).
+    required: false
+    default: ""
+  max-files:
+    description: Maximum number of files included from the diff (empty = tool default).
+    required: false
+    default: ""
+  gh-timeout:
+    description: Timeout in seconds for each gh CLI call (empty = tool default).
+    required: false
+    default: ""
+  python-version:
+    description: Python version used to run the reviewer.
+    required: false
+    default: "3.14"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install maestro-review
+      shell: bash
+      run: python -m pip install --quiet "${{ github.action_path }}"
+
+    - name: Run maestro-review
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude-code-oauth-token }}
+        INPUT_REPO: ${{ inputs.repo }}
+        INPUT_PR: ${{ inputs.pr-number }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_MAX_DIFF_CHARS: ${{ inputs.max-diff-chars }}
+        INPUT_MAX_FILES: ${{ inputs.max-files }}
+        INPUT_GH_TIMEOUT: ${{ inputs.gh-timeout }}
+      run: |
+        set -euo pipefail
+        if [ -z "$INPUT_PR" ]; then
+          echo "::error::pr-number is empty; run on a pull_request event or pass pr-number explicitly"
+          exit 1
+        fi
+        # Drop empty credentials so the SDK does not see a blank variable.
+        [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+        [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+        args=(--repo "$INPUT_REPO" --pr "$INPUT_PR")
+        case "$INPUT_MODE" in
+          review)
+            if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+              echo "::error::mode 'review' needs anthropic-api-key or claude-code-oauth-token"
+              exit 1
+            fi
+            ;;
+          replies) args+=(--require-comment-replies) ;;
+          *) echo "::error::unknown mode '$INPUT_MODE' (expected 'review' or 'replies')"; exit 1 ;;
+        esac
+        [ "$INPUT_DRY_RUN" = "true" ] && args+=(--dry-run)
+        [ -n "$INPUT_MAX_DIFF_CHARS" ] && args+=(--max-diff-chars "$INPUT_MAX_DIFF_CHARS")
+        [ -n "$INPUT_MAX_FILES" ] && args+=(--max-files "$INPUT_MAX_FILES")
+        [ -n "$INPUT_GH_TIMEOUT" ] && args+=(--gh-timeout "$INPUT_GH_TIMEOUT")
+        maestro-review "${args[@]}"
