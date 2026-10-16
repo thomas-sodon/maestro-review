@@ -79,27 +79,25 @@ def _normalize_title(title: str) -> frozenset[str]:
 
 
 # Stable delimiter pair wrapping the overflow-findings list in the review body.
-# Overflow findings have no inline thread, so consumers
-# (``maestro/evolution.py`` and the human-paced comment-remediation
-# surface) parse the bug-severity lines out of the body between these
-# sentinels.  The pair and the ``of-`` fingerprint scheme
-# below are duplicated core-side under the ``maestro`` ↔ ``maestro_review``
-# package separation and kept in sync by a cross-package test (proposal 064).
+# Overflow findings have no inline thread, so downstream consumers (for example
+# the Maestro agent, thomas-sodon/maestro-agent) parse the finding lines out of
+# the body between these sentinels.  The pair and the ``of-`` fingerprint scheme
+# below are a wire contract those consumers match verbatim, so changing either
+# is a breaking change.
 _OVERFLOW_SENTINEL_OPEN = "<!-- maestro:overflow -->"
 _OVERFLOW_SENTINEL_CLOSE = "<!-- /maestro:overflow -->"
 
 # Header the overflow list is rendered under (see :meth:`_build_review_payload`).
 # Predates the sentinel pair; the read-side parser falls back to it so an
 # interrupted upgrade that left a body with the header but no sentinels is still
-# parsed.  Kept in sync with ``maestro/evolution.py`` by the cross-package test.
+# parsed.  Part of the same wire contract as the sentinel pair.
 _OVERFLOW_LEGACY_HEADER = "**Additional findings** (could not be placed inline):"
 
 # Roll-up acknowledgement comment header.  An overflow finding has no inline
-# thread to reply to, so the comment-remediation surfaces record closure as
+# thread to reply to, so a comment-remediation tool records closure as
 # ``of-<hash> — <verdict>`` lines under this sentinel on one PR comment.  A
 # fingerprint listed there is treated as answered by the reply-coverage gate.
-# Duplicated from ``maestro/evolution.py`` (strict package separation) and kept
-# in sync by the cross-package test.
+# Part of the same wire contract: downstream consumers match it verbatim.
 _OVERFLOW_ACK_SENTINEL = "<!-- maestro:overflow-ack -->"
 
 
@@ -111,7 +109,7 @@ def _overflow_fingerprint(finding: ReviewFinding) -> str:
     title is deliberately *not* part of that identity: it is LLM-authored prose
     that gets re-worded on nearly every run, so folding it in minted a fresh
     handle for the same logical finding each review and no acknowledgement could
-    ever stick (issue #3326).  The legacy title-derived key stays computable via
+    ever stick.  The legacy title-derived key stays computable via
     :func:`_legacy_overflow_fingerprint` so acks already posted against it keep
     matching.
 
@@ -140,7 +138,7 @@ def _overflow_fingerprint(finding: ReviewFinding) -> str:
 
 
 def _legacy_overflow_fingerprint(finding: ReviewFinding) -> str:
-    """Return the pre-#3326 ``severity|file|line|sorted-normalized-title`` handle.
+    """Return the legacy ``severity|file|line|sorted-normalized-title`` handle.
 
     Retained only so an acknowledgement posted before the identity moved still
     matches the finding it answered; nothing emits this handle any more.
@@ -160,9 +158,10 @@ def _acking_handles(finding: OverflowFinding) -> set[str]:
     any of those keys still answers the finding.
 
     The canonical handle is required in its own right: a finding parsed out of a
-    pre-#3326 block carries the *title*-derived handle as its ``fingerprint``,
-    so without it the set would be the legacy key twice and an ack recorded
-    under the coarse handle would fail to answer a legacy-rendered survivor of
+    block rendered before the move from title-derived to site-derived identity
+    carries the *title*-derived handle as its ``fingerprint``, so without it the
+    set would be the legacy key twice and an ack recorded under the coarse
+    handle would fail to answer a legacy-rendered survivor of
     :meth:`PRReviewer._union_overflow_findings`.
 
     Same-site collapse is deliberate and *asymmetric with the union*: for
@@ -173,11 +172,11 @@ def _acking_handles(finding: OverflowFinding) -> set[str]:
     re-derives identically on every run, and folding the title back in only when
     a sibling finding happens to share the site would make one finding's handle
     depend on whether the *other* was emitted that review, flipping it between
-    the coarse and title-derived keys and resurrecting the #3326 treadmill the
-    coarse handle exists to end.  So distinct same-site findings cannot be
-    acknowledged independently; the union still preserves both because dropping
-    one loses it even from an *unacked* audit, which is the strictly worse
-    failure.
+    the coarse and title-derived keys and resurrecting the re-minted-handle
+    treadmill the coarse handle exists to end.  So distinct same-site findings
+    cannot be acknowledged independently; the union still preserves both
+    because dropping one loses it even from an *unacked* audit, which is the
+    strictly worse failure.
     """
     probe = ReviewFinding(
         file=finding.file, line=finding.line, severity=finding.severity,
@@ -194,12 +193,13 @@ def _overflow_merge_key(finding: OverflowFinding) -> str:
     """Return the canonical cross-block dedupe key for a *parsed* finding.
 
     The union merge must not key on the raw embedded ``of-<hash>`` handle: a
-    block rendered before #3326 embedded the *title*-derived handle, which the
-    reviewer re-minted on every reworded review, so one still-open finding
-    carries a different handle in each historical block.  Keying on those raw
-    handles would survive the union once per legacy review instead of
-    collapsing to a single entry — over-reporting exactly the transitional PRs
-    this change targets.  Recomputing the coarse ``severity|file|line`` handle
+    block rendered before the move from title-derived to site-derived identity
+    embedded the *title*-derived handle, which the reviewer re-minted on every
+    reworded review, so one still-open finding carries a different handle in
+    each historical block.  Keying on those raw handles would survive the union
+    once per legacy review instead of collapsing to a single entry —
+    over-reporting exactly the PRs reviewed across the identity move.
+    Recomputing the coarse ``severity|file|line`` handle
     canonicalizes every such rendering onto one key.
 
     A file-level finding (``line <= 0``) has no coarse identity — there the
@@ -222,8 +222,7 @@ def _overflow_merge_key(finding: OverflowFinding) -> str:
 #   ``- [of-<hash> ]**<file>:<line>** [<severity>] — <title>[: <description>]``
 # The ``of-<hash>`` handle is present in the hardened block and absent in the
 # legacy block (recomputed via :func:`_overflow_fingerprint` when missing).
-# Mirrors ``maestro/evolution.py::_OVERFLOW_LINE_RE``; this reader keeps every
-# severity (the core reader keeps only ``bug``).
+# This reader keeps every severity; a downstream consumer may keep only ``bug``.
 _OVERFLOW_LINE_RE = re.compile(
     r"^-\s+"
     r"(?:(of-[0-9a-f]{8})\s+)?"
@@ -242,9 +241,8 @@ _OVERFLOW_ACK_LINE_RE = re.compile(r"of-[0-9a-f]{8}")
 
 # Matches an AI reviewer finding root: one of the severity icons emitted by
 # :meth:`_format_finding_body` (🐛 bug / 💡 suggestion / ✏️ nit) followed by the
-# bold title.  Generalizes the bug-only ``maestro/evolution.py::_AI_BUG_COMMENT_RE``
-# across every severity the reviewer posts; pinned to the emitted icons by the
-# cross-package test.
+# bold title, across every severity the reviewer posts.  The icons are part of
+# the wire contract downstream consumers match verbatim.
 _AI_FINDING_RE = re.compile(
     r"^(?:\U0001f41b|\U0001f4a1|✏️)\s+\*\*(.+?)\*\*",
 )
@@ -254,10 +252,10 @@ _AI_FINDING_RE = re.compile(
 class OverflowFinding:
     """An overflow finding parsed back out of a review body.
 
-    Mirrors ``maestro/evolution.py::OverflowBugFinding`` but keeps every severity
-    (not just ``bug``) so the reply-coverage gate can audit suggestions and nits
-    too.  ``fingerprint`` is the stable ``of-<hash8>`` handle — taken from the
-    hardened block, or recomputed from the parsed fields for a legacy line.
+    Keeps every severity (not just ``bug``) so the reply-coverage gate can audit
+    suggestions and nits too.  ``fingerprint`` is the stable ``of-<hash8>``
+    handle — taken from the hardened block, or recomputed from the parsed fields
+    for a legacy line.
     """
 
     fingerprint: str
@@ -333,11 +331,10 @@ def _parse_overflow_ack(comment_bodies: list[str]) -> set[str]:
     Scans *comment_bodies* for the one(s) carrying :data:`_OVERFLOW_ACK_SENTINEL`
     and collects an ``of-<hash>`` handle only from a line that *also* carries one
     of :data:`_ALL_COMMENT_TERMINAL_MARKERS` — a fingerprint whose overflow
-    finding has an answering verdict.  This mirrors the core consumer
-    ``maestro/evolution.py::_acknowledged_overflow_fingerprints``: a handle that
-    merely co-occurs with the sentinel (an in-progress line, a quoted finding, or
-    prose) is *not* treated as answered, so the planned reply-coverage gate cannot
-    pass an overflow finding that was never actually closed.
+    finding has an answering verdict.  A handle that merely co-occurs with the
+    sentinel (an in-progress line, a quoted finding, or prose) is *not* treated
+    as answered, so the reply-coverage gate cannot pass an overflow finding that
+    was never actually closed.
     """
     acked: set[str] = set()
     for body in comment_bodies:
@@ -347,10 +344,8 @@ def _parse_overflow_ack(comment_bodies: list[str]) -> set[str]:
             if not any(marker in line for marker in _ALL_COMMENT_TERMINAL_MARKERS):
                 continue
             # Collect only the FIRST handle on the line — the one the roll-up keyed
-            # the verdict to.  This mirrors the core consumer
-            # ``maestro/evolution.py::_acknowledged_overflow_fingerprints``, which
-            # uses ``.search()`` (first match only); collecting every handle would
-            # also ack a handle merely quoted in the verdict text (e.g.
+            # the verdict to.  Collecting every handle would also ack a handle
+            # merely quoted in the verdict text (e.g.
             # ``of-aaaaaaaa — Fixed automatically (was a dup of of-bbbbbbbb)``),
             # treating a never-closed finding as answered — the unsafe direction.
             acked.update(_OVERFLOW_ACK_LINE_RE.findall(line)[:1])
@@ -416,10 +411,10 @@ class PostReviewResult:
     """Outcome of posting a review."""
 
     posted: list[ReviewFinding]     # New findings posted as inline comments
-    reopened: list[ReviewFinding]   # Findings that reopened resolved threads
+    reopened: list[ReviewFinding]   # Bug findings flagged as persisting on resolved threads
     filtered: list[ReviewFinding]   # Findings skipped (tracked by issues)
     skipped: list[ReviewFinding]    # Findings skipped (existing unresolved threads)
-    disputed: list[ReviewFinding] = field(default_factory=list)  # Findings escalated to issues after processor disagreement
+    disputed: list[ReviewFinding] = field(default_factory=list)  # Findings escalated to issues after a disputing reply
 
 
 @dataclass
@@ -670,8 +665,8 @@ class PRReviewer:
                 skip.append(finding)
             elif finding.severity != "bug":
                 # Nits/suggestions in resolved threads without an issue link
-                # are skipped — only bug-severity findings re-open a resolved
-                # thread to flag that the defect persists.
+                # are skipped — only bug-severity findings get a reply on a
+                # resolved thread flagging that the defect persists.
                 logger.info(
                     "Skipping %s '%s' in %s — resolved thread (not a bug)",
                     finding.severity, finding.title, finding.file,
@@ -953,7 +948,8 @@ class PRReviewer:
                 f"({len(filtered)} skipped):\n{items}",
             )
         body_parts.append(
-            "\n\n---\n*AI-generated review — advisory only*"
+            "\n\n---\n*AI-generated review by maestro-review — new findings "
+            "fail this check*"
         )
 
         return {
@@ -963,7 +959,7 @@ class PRReviewer:
         }
 
     # ------------------------------------------------------------------
-    # Processor disagreement → issue escalation
+    # Disputed finding → issue escalation
     # ------------------------------------------------------------------
 
     # Markers ``_thread_disputes_finding`` looks for in the last reply of a
@@ -988,7 +984,7 @@ class PRReviewer:
         pr_number: int,
         finding: ReviewFinding,
     ) -> int | None:
-        """Create a GitHub issue for a finding the processor disputed."""
+        """Create a GitHub issue for a finding a thread reply disputed."""
         title = f"AI Review: {finding.title}"
         body = (
             f"## Review Finding (PR #{pr_number})\n\n"
@@ -1002,8 +998,8 @@ class PRReviewer:
         if finding.suggested_code:
             body += f"**Suggested code:**\n```\n{finding.suggested_code}\n```\n\n"
         body += (
-            "*Escalated by AI code review after the comment processor "
-            "reported it could not prove the defect.*"
+            "*Escalated by maestro-review: a reply on the review thread "
+            "disputed this finding, and a later review raised it again.*"
         )
         return self._host.create_issue(
             title, body, labels=["ai-review", finding.severity],
@@ -1015,7 +1011,7 @@ class PRReviewer:
         findings: list[ReviewFinding],
         threads: list[ReviewThread] | None = None,
     ) -> tuple[list[ReviewFinding], list[ReviewFinding]]:
-        """Escalate findings the processor previously disputed.
+        """Escalate findings a thread reply previously disputed.
 
         For each finding whose matching thread ends with a "Could not prove"
         reply (and has no existing issue link), file an ``ai-review`` issue
@@ -1083,8 +1079,9 @@ class PRReviewer:
                 )
 
             reply_body = (
-                f"Tracked in #{issue_num} \u2014 the reviewer reproduced this "
-                f"finding after the processor declined to confirm it."
+                f"Tracked in #{issue_num} \u2014 this finding was disputed on the "
+                f"thread and raised again on a later review, so it is now "
+                f"tracked as an issue."
             )
             try:
                 self._host.reply_to_review_comment(
@@ -1136,7 +1133,8 @@ class PRReviewer:
         otherwise all findings are posted as-is.
 
         Returns a :class:`PostReviewResult` describing what was posted,
-        reopened, filtered (tracked by issues), and skipped (existing threads).
+        flagged as persisting on a resolved thread, filtered (tracked by
+        issues), and skipped (existing threads).
         """
         valid_lines: dict[str, set[int]] = (
             self._parse_diff_lines(diff) if diff else {}
@@ -1154,7 +1152,7 @@ class PRReviewer:
         raw_threads = self._host.get_pr_review_threads(pr_number)
         threads = self._parse_review_threads(raw_threads) if raw_threads else []
 
-        # Escalate findings the processor previously disputed BEFORE filtering
+        # Escalate findings a thread reply previously disputed BEFORE filtering
         # by issue tracking.  If a finding's matching thread already has a
         # "Could not prove" reply *and* a separate ai-review issue exists, the
         # filter would otherwise drop it silently and leave the disputed
@@ -1226,7 +1224,7 @@ class PRReviewer:
         )
 
     # ------------------------------------------------------------------
-    # Reply-coverage audit (read-only, zero-SDK-cost)
+    # Reply-coverage audit (read-only, makes no model call)
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -1235,10 +1233,9 @@ class PRReviewer:
 
         An inline thread counts as unreplied iff its root matches
         :data:`_AI_FINDING_RE` (an icon + bold title the reviewer emits), it is
-        neither resolved nor outdated (both exempt, matching the
-        human-paced comment-remediation eligibility), and it carries no
-        reply (:attr:`ReviewThread.reply_bodies`
-        is empty).
+        neither resolved nor outdated (both exempt: a comment-remediation run
+        does not act on them either), and it carries no reply
+        (:attr:`ReviewThread.reply_bodies` is empty).
         """
         return (
             not thread.is_resolved
@@ -1252,7 +1249,7 @@ class PRReviewer:
 
         The reviewer emits a non-cumulative, per-commit block, so a finding that
         appeared only in a superseded middle review is still open — reading only
-        the newest block silently dropped it from selection (issue #3326).  Walks
+        the newest block silently dropped it from selection.  Walks
         every body carrying a block oldest-first, the newest occurrence winning
         on title/description so the displayed text tracks the latest review.
         Returns ``[]`` when no review carries a block.
@@ -1268,10 +1265,9 @@ class PRReviewer:
         while a title re-wording across reviews still collapses to one.
 
         The dedupe key is the *canonical* one from :func:`_overflow_merge_key`,
-        not the raw embedded handle, so a block rendered before #3326 — whose
-        embedded handle was title-derived and re-minted each review — collapses
-        onto the current coarse handle rather than surviving once per legacy
-        review.
+        not the raw embedded handle, so a block carrying a legacy title-derived
+        handle — re-minted each review — collapses onto the current coarse
+        handle rather than surviving once per legacy review.
         """
         merged: dict[str, list[OverflowFinding]] = {}
         for body in self._host.get_pr_review_bodies(pr_number):
@@ -1296,10 +1292,10 @@ class PRReviewer:
     def find_unreplied_comments(self, pr_number: int) -> UnrepliedComments:
         """Audit which of the reviewer's own findings still lack a reply.
 
-        Read-only and zero-SDK-cost: inspects the PR's current comment state and
-        reports every finding the reviewer is responsible for — inline thread or
-        overflow — that is still open and unanswered.  Makes no Claude call and
-        posts nothing.
+        Read-only: inspects the PR's current comment state and reports every
+        finding the reviewer is responsible for — inline thread or overflow —
+        that is still open and unanswered.  Makes no model call and posts
+        nothing.
 
         * **Inline** — AI review threads accepted by
           :meth:`_is_unreplied_ai_thread`.

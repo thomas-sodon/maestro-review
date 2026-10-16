@@ -285,9 +285,8 @@ class GitHubClient:
         """Fetch the bodies of a PR's submitted reviews, oldest first.
 
         The reply-coverage gate scans these for the reviewer's
-        overflow-findings block (proposal 064).  Best-effort — logs a warning
-        and returns ``[]`` on failure (consistent with
-        :meth:`get_pr_review_threads`).
+        overflow-findings block.  Best-effort — logs a warning and returns
+        ``[]`` on failure (consistent with :meth:`get_pr_review_threads`).
         """
         try:
             result = self._run([
@@ -309,9 +308,9 @@ class GitHubClient:
     def get_pr_comment_bodies(self, pr_number: int) -> list[str]:
         """Fetch the bodies of a PR's issue comments, oldest first.
 
-        Used to locate the roll-up overflow acknowledgement comment
-        (proposal 064).  Best-effort — logs a warning and returns ``[]`` on
-        failure (consistent with :meth:`get_pr_review_threads`).
+        Used to locate the roll-up overflow acknowledgement comment.
+        Best-effort — logs a warning and returns ``[]`` on failure (consistent
+        with :meth:`get_pr_review_threads`).
         """
         try:
             result = self._run([

@@ -229,13 +229,20 @@ class TestHandleDisagreements:
         assert remaining == []
         assert escalated == [finding]
         host.create_issue.assert_called_once()
-        title, _body = host.create_issue.call_args[0]
+        title, issue_body = host.create_issue.call_args[0]
         assert "Unused import" in title
+        assert issue_body.endswith(
+            "*Escalated by maestro-review: a reply on the review thread "
+            "disputed this finding, and a later review raised it again.*",
+        )
         assert "suggestion" in host.create_issue.call_args[1]["labels"]
         host.reply_to_review_comment.assert_called_once()
         _pr, comment_id, body = host.reply_to_review_comment.call_args[0]
         assert comment_id == 100
-        assert "Tracked in #99" in body
+        assert body == (
+            "Tracked in #99 \u2014 this finding was disputed on the thread and "
+            "raised again on a later review, so it is now tracked as an issue."
+        )
 
     def test_reply_failure_still_escalates_finding(self) -> None:
         """A transient reply failure after the issue is created must not
@@ -659,7 +666,7 @@ class TestCategorizeNitsNotReopened:
         assert reopen == []
 
     def test_bug_in_resolved_thread_reopened(self) -> None:
-        """Bugs in resolved threads without issue links ARE reopened."""
+        """Bugs in resolved threads without issue links get a 'defect persists' reply."""
         host = MagicMock()
         host.get_pr_review_threads.return_value = [{
             "id": "PRRT_1",

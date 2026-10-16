@@ -6,17 +6,19 @@ Usage:
     maestro-review --repo owner/repo --pr 42 --require-comment-replies
 
 Exits 1 whenever the reviewer produces a comment — i.e. a finding of any
-severity (bug, suggestion, or nit) is newly posted or reopened — so the PR is
-blocked until those comments are addressed. Findings already tracked by open
-issues, escalated to issues, or matching an existing review thread are not
-freshly produced and do not affect the exit code. Infrastructure failures (API
-errors, SDK crashes) also exit 1 so CI surfaces broken review runs.
+severity (bug, suggestion, or nit) is newly posted, or a bug is flagged as
+persisting on a resolved thread — so the PR is blocked until those comments
+are addressed. Findings already tracked by open issues, escalated to issues,
+or matching an existing review thread are not freshly produced and do not
+affect the exit code. Infrastructure failures (API errors, SDK crashes) also
+exit 1 so CI surfaces broken review runs.
 
 With ``--require-comment-replies`` the diff review and posting are skipped
-entirely: the run becomes a read-only, zero-SDK-cost audit that exits 1 if any
-of the reviewer's own findings (inline thread or overflow) still lack a reply.
-A gh/GraphQL outage during the audit fails the gate closed (exit 1) rather than
-being mistaken for "all comments replied" — the audit probes connectivity first.
+entirely: the run becomes a read-only audit that makes no model call and exits
+1 if any of the reviewer's own findings (inline thread or overflow) still lack
+a reply. A gh/GraphQL outage during the audit fails the gate closed (exit 1)
+rather than being mistaken for "all comments replied" — the audit probes
+connectivity first.
 """
 
 from __future__ import annotations
@@ -66,7 +68,6 @@ def _config_candidates() -> list[Path]:
     candidates.extend((
         Path.cwd() / "maestro-review.toml",
         Path.cwd() / "maestro.toml",
-        Path(__file__).resolve().parent.parent / "maestro.toml",
     ))
     return candidates
 
@@ -156,8 +157,8 @@ def main() -> None:
 
     if args.require_comment_replies:
         # Check-only mode: skip the diff review and posting entirely. This is a
-        # read-only, zero-SDK-cost audit of reply state — it makes no Claude
-        # call and posts nothing, so reviewer.review / asyncio.run never run.
+        # read-only audit of reply state — it makes no model call and posts
+        # nothing, so reviewer.review / asyncio.run never run.
         try:
             report = reviewer.find_unreplied_comments(args.pr)
         except Exception:
@@ -250,10 +251,11 @@ def main() -> None:
         )
 
     # Fail whenever the reviewer produced a comment: any finding of any
-    # severity that was newly posted or reopened must be addressed before the
-    # PR proceeds. Findings already tracked by open issues (filtered),
-    # escalated to issues (disputed), or matching an existing review thread
-    # (skipped) are not freshly produced, so they do not block.
+    # severity that was newly posted, or a bug flagged as persisting on a
+    # resolved thread, must be addressed before the PR proceeds. Findings
+    # already tracked by open issues (filtered), escalated to issues
+    # (disputed), or matching an existing review thread (skipped) are not
+    # freshly produced, so they do not block.
     if actioned:
         log.error(
             "Failing review: %d comment(s) posted on PR #%d",

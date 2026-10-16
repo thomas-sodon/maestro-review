@@ -502,3 +502,77 @@ class TestQueryOptionsConstruction:
         assert isinstance(options, ClaudeAgentOptions)
         assert options.model == "claude-opus-5-5"
         assert options.effort == "high"
+
+
+# ---------------------------------------------------------------------------
+# Stderr-drain patch — SDK internals missing
+# ---------------------------------------------------------------------------
+
+class TestStderrDrainPatchGuard:
+    def test_missing_private_attribute_skips_patch(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A transport lacking ``_read_messages_impl`` is skipped, logged at debug."""
+        from claude_agent_sdk._internal.transport.subprocess_cli import (  # type: ignore[import-untyped]
+            SubprocessCLITransport,
+        )
+
+        from maestro_review.sdk import _patch_sdk_stderr_drain
+
+        monkeypatch.delattr(SubprocessCLITransport, "_read_messages_impl")
+        with caplog.at_level(logging.DEBUG, logger="maestro_review"):
+            _patch_sdk_stderr_drain()
+
+        assert not hasattr(SubprocessCLITransport, "_read_messages_impl")
+        assert "skipping stderr-drain patch" in caplog.text
+
+    def test_module_imports_when_private_attribute_missing(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Importing the module succeeds even when the patch target is gone."""
+        import importlib.util
+        import sys
+
+        from claude_agent_sdk._internal.transport.subprocess_cli import (  # type: ignore[import-untyped]
+            SubprocessCLITransport,
+        )
+
+        import maestro_review.sdk as sdk_mod
+
+        monkeypatch.delattr(SubprocessCLITransport, "_read_messages_impl")
+        # Load a fresh copy under a private name so the real module is untouched;
+        # dataclasses need the module registered while its body executes.
+        spec = importlib.util.spec_from_file_location(
+            "_maestro_review_sdk_probe", sdk_mod.__file__,
+        )
+        assert spec is not None
+        assert spec.loader is not None
+        probe = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, spec.name, probe)
+        spec.loader.exec_module(probe)
+
+        assert probe.REVIEW_MODEL == sdk_mod.REVIEW_MODEL
+        assert not hasattr(SubprocessCLITransport, "_read_messages_impl")
+
+    def test_missing_transport_module_skips_patch(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An SDK without the private transport module skips the patch."""
+        import sys
+
+        from claude_agent_sdk._internal.transport.subprocess_cli import (  # type: ignore[import-untyped]
+            SubprocessCLITransport,
+        )
+
+        from maestro_review.sdk import _patch_sdk_stderr_drain
+
+        before = SubprocessCLITransport._read_messages_impl
+        target = "claude_agent_sdk._internal.transport.subprocess_cli"
+        with (
+            patch.dict(sys.modules, {target: None}),
+            caplog.at_level(logging.DEBUG, logger="maestro_review"),
+        ):
+            _patch_sdk_stderr_drain()
+
+        assert SubprocessCLITransport._read_messages_impl is before
+        assert "skipping stderr-drain patch" in caplog.text

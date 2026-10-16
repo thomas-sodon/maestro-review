@@ -1,8 +1,8 @@
 """Wrapper around claude_agent_sdk.query for the code review agent.
 
-Slim copy of the Maestro SDK layer — keeps QueryOptions, QueryResult, and
-the streaming query() function but drops session file logging (not needed
-in CI).
+Provides QueryOptions, QueryResult, and a streaming query() function with
+retries for transient failures; it keeps no session file log, which a CI run
+does not need.  Adapted from maestro/sdk.py in thomas-sodon/maestro-agent.
 """
 
 from __future__ import annotations
@@ -59,17 +59,23 @@ def _patch_sdk_stderr_drain() -> None:
     This patch replaces the post-exit error block to first let the stderr task
     finish (with a short timeout), then include any captured output in the
     ``ProcessError.stderr`` field.
+
+    The patched names are SDK internals, so a release that moves or renames
+    them skips the patch (logged at debug) instead of breaking the import.
     """
     try:
+        from claude_agent_sdk._errors import ProcessError  # type: ignore[import-untyped]
         from claude_agent_sdk._internal.transport.subprocess_cli import (  # type: ignore[import-untyped]
             SubprocessCLITransport,
         )
-    except ImportError:  # pragma: no cover — SDK always installed
+
+        _original = SubprocessCLITransport._read_messages_impl  # type: ignore[attr-defined]
+    except (ImportError, AttributeError):
+        logger.debug(
+            "SDK transport internals not found; skipping stderr-drain patch",
+            exc_info=True,
+        )
         return
-
-    from claude_agent_sdk._errors import ProcessError  # type: ignore[import-untyped]
-
-    _original = SubprocessCLITransport._read_messages_impl  # type: ignore[attr-defined]
 
     async def _patched_read_messages_impl(self: Any) -> Any:
         """Wrap _read_messages_impl to drain stderr before raising ProcessError."""

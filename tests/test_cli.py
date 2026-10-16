@@ -266,7 +266,7 @@ class TestAnyPostedFindingBlocks:
             assert exc.value.code == 1
 
     def test_reopened_finding_exits_one(self) -> None:
-        """A reopened finding (defect persists) also blocks the PR."""
+        """A finding that gets a 'defect persists' reply also blocks the PR."""
         bug = FakeFinding(severity="bug")
         result = FakeResult(summary="s", findings=[bug])
 
@@ -447,7 +447,7 @@ class TestDryRunFilteringFallback:
 
 
 class TestTomlConfigParsingException:
-    """Cover TOML parse exception (lines 57-58)."""
+    """Cover the TOML parse-error branch."""
 
     def test_malformed_toml_returns_empty(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "cwd" / "maestro.toml"
@@ -456,13 +456,8 @@ class TestTomlConfigParsingException:
 
         from maestro_review.cli import _load_review_defaults
 
-        original_file = review_pr_mod.__file__
-        try:
-            review_pr_mod.__file__ = str(tmp_path / "nonexistent" / "maestro_review" / "cli.py")
-            with patch("maestro_review.cli.Path.cwd", return_value=tmp_path / "cwd"):
-                result = _load_review_defaults()
-        finally:
-            review_pr_mod.__file__ = original_file
+        with patch("maestro_review.cli.Path.cwd", return_value=tmp_path / "cwd"):
+            result = _load_review_defaults()
 
         assert result == {}
 
@@ -522,33 +517,25 @@ class TestLoadReviewDefaults:
     """Verify _load_review_defaults handles edge cases correctly."""
 
     def test_empty_review_section_skipped(self, tmp_path: Path) -> None:
-        """A maestro.toml with an empty [review] section should not stop the search.
+        """A config file without a [review] section should not stop the search.
 
-        The first candidate has maestro.toml without [review]; the second has it.
-        The function should skip the first and return values from the second.
+        The first candidate (maestro-review.toml) has no [review]; the second
+        (maestro.toml) has it.  The function should skip the first and return
+        values from the second.
         """
-        # First candidate: maestro.toml exists but [review] is absent
-        toml_no_review = tmp_path / "cwd" / "maestro.toml"
-        toml_no_review.parent.mkdir()
-        toml_no_review.write_text("[timeouts]\ngit = 30\n")
-
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        # First candidate: maestro-review.toml exists but [review] is absent
+        (cwd / "maestro-review.toml").write_text("[timeouts]\ngit = 30\n")
         # Second candidate: maestro.toml with [review] section
-        toml_with_review = tmp_path / "pkg" / "maestro.toml"
-        toml_with_review.parent.mkdir()
-        toml_with_review.write_text(
+        (cwd / "maestro.toml").write_text(
             "[review]\nmax_diff_chars = 50000\nmax_files = 25\ngh_timeout = 15\n"
         )
 
         from maestro_review.cli import _load_review_defaults
 
-        original_file = review_pr_mod.__file__
-        try:
-            # Monkeypatch __file__ so parent.parent resolves to our tmp dir
-            review_pr_mod.__file__ = str(tmp_path / "pkg" / "maestro_review" / "cli.py")
-            with patch("maestro_review.cli.Path.cwd", return_value=tmp_path / "cwd"):
-                result = _load_review_defaults()
-        finally:
-            review_pr_mod.__file__ = original_file
+        with patch("maestro_review.cli.Path.cwd", return_value=cwd):
+            result = _load_review_defaults()
 
         assert result["max_diff_chars"] == 50000
         assert result["max_files"] == 25
@@ -558,13 +545,8 @@ class TestLoadReviewDefaults:
         """When no maestro.toml exists, return empty dict."""
         from maestro_review.cli import _load_review_defaults
 
-        original_file = review_pr_mod.__file__
-        try:
-            review_pr_mod.__file__ = str(tmp_path / "nonexistent" / "maestro_review" / "cli.py")
-            with patch("maestro_review.cli.Path.cwd", return_value=tmp_path / "also_nonexistent"):
-                result = _load_review_defaults()
-        finally:
-            review_pr_mod.__file__ = original_file
+        with patch("maestro_review.cli.Path.cwd", return_value=tmp_path / "also_nonexistent"):
+            result = _load_review_defaults()
 
         assert result == {}
 
@@ -578,13 +560,8 @@ class TestLoadReviewDefaults:
             "[review]\nmax_diff_chars = 100000\nmax_files = 75\ngh_timeout = 45\n"
         )
 
-        original_file = review_pr_mod.__file__
-        try:
-            review_pr_mod.__file__ = str(tmp_path / "nonexistent" / "maestro_review" / "cli.py")
-            with patch("maestro_review.cli.Path.cwd", return_value=tmp_path / "cwd"):
-                result = _load_review_defaults()
-        finally:
-            review_pr_mod.__file__ = original_file
+        with patch("maestro_review.cli.Path.cwd", return_value=tmp_path / "cwd"):
+            result = _load_review_defaults()
 
         assert result["max_diff_chars"] == 100000
         assert result["max_files"] == 75
@@ -614,7 +591,7 @@ class TestAdvisorySeveritiesRemoved:
 
 
 class TestRequireCommentReplies:
-    """--require-comment-replies check-only gate (proposal 083, step 4).
+    """--require-comment-replies check-only gate.
 
     The flag turns the run into a read-only reply-coverage audit: the diff
     review and posting are skipped entirely (reviewer.review / asyncio.run are

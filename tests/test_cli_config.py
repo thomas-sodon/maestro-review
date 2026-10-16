@@ -10,10 +10,6 @@ import pytest
 from maestro_review.cli import _load_review_defaults
 
 
-def _empty_pkg_parent(tmp_path: Path) -> str:
-    return str(tmp_path / "nonexistent" / "maestro_review" / "cli.py")
-
-
 class TestConfigFiles:
     def test_explicit_config_env_var_wins(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         explicit = tmp_path / "custom.toml"
@@ -22,10 +18,7 @@ class TestConfigFiles:
         cwd.mkdir()
         (cwd / "maestro-review.toml").write_text("[review]\nmax_files = 99\n")
         monkeypatch.setenv("MAESTRO_REVIEW_CONFIG", str(explicit))
-        with (
-            patch("maestro_review.cli.Path.cwd", return_value=cwd),
-            patch("maestro_review.cli.__file__", _empty_pkg_parent(tmp_path)),
-        ):
+        with patch("maestro_review.cli.Path.cwd", return_value=cwd):
             result = _load_review_defaults()
         assert result["max_files"] == 7
 
@@ -34,10 +27,7 @@ class TestConfigFiles:
         cwd.mkdir()
         (cwd / "maestro-review.toml").write_text("[review]\ngh_timeout = 11\n")
         (cwd / "maestro.toml").write_text("[review]\ngh_timeout = 22\n")
-        with (
-            patch("maestro_review.cli.Path.cwd", return_value=cwd),
-            patch("maestro_review.cli.__file__", _empty_pkg_parent(tmp_path)),
-        ):
+        with patch("maestro_review.cli.Path.cwd", return_value=cwd):
             result = _load_review_defaults()
         assert result["gh_timeout"] == 11
 
@@ -45,10 +35,7 @@ class TestConfigFiles:
         monkeypatch.setenv("MAESTRO_REVIEW_CONFIG", str(tmp_path / "absent.toml"))
         cwd = tmp_path / "cwd"
         cwd.mkdir()
-        with (
-            patch("maestro_review.cli.Path.cwd", return_value=cwd),
-            patch("maestro_review.cli.__file__", _empty_pkg_parent(tmp_path)),
-        ):
+        with patch("maestro_review.cli.Path.cwd", return_value=cwd):
             result = _load_review_defaults()
         assert result == {}
 
@@ -60,10 +47,7 @@ class TestEnvOverrides:
         (cwd / "maestro-review.toml").write_text("[review]\nmax_diff_chars = 1000\nmax_files = 5\n")
         monkeypatch.setenv("MAESTRO_REVIEW_MAX_DIFF_CHARS", " 2000 ")
         monkeypatch.setenv("MAESTRO_REVIEW_REQUIRE_COMMENT_REPLIES", "1")
-        with (
-            patch("maestro_review.cli.Path.cwd", return_value=cwd),
-            patch("maestro_review.cli.__file__", _empty_pkg_parent(tmp_path)),
-        ):
+        with patch("maestro_review.cli.Path.cwd", return_value=cwd):
             result = _load_review_defaults()
         assert result["max_diff_chars"] == 2000
         assert result["max_files"] == 5
@@ -74,10 +58,7 @@ class TestEnvOverrides:
         cwd.mkdir()
         monkeypatch.setenv("MAESTRO_REVIEW_MAX_FILES", "lots")
         monkeypatch.setenv("MAESTRO_REVIEW_GH_TIMEOUT", "   ")
-        with (
-            patch("maestro_review.cli.Path.cwd", return_value=cwd),
-            patch("maestro_review.cli.__file__", _empty_pkg_parent(tmp_path)),
-        ):
+        with patch("maestro_review.cli.Path.cwd", return_value=cwd):
             result = _load_review_defaults()
         assert result == {}
 
@@ -85,9 +66,6 @@ class TestEnvOverrides:
         cwd = tmp_path / "cwd"
         cwd.mkdir()
         monkeypatch.setenv("MAESTRO_REVIEW_GH_TIMEOUT", "45")
-        with (
-            patch("maestro_review.cli.Path.cwd", return_value=cwd),
-            patch("maestro_review.cli.__file__", _empty_pkg_parent(tmp_path)),
-        ):
+        with patch("maestro_review.cli.Path.cwd", return_value=cwd):
             result = _load_review_defaults()
         assert result == {"gh_timeout": 45}

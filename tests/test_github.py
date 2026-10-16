@@ -159,7 +159,7 @@ class TestGetPrReviewThreads:
         assert "input_data" not in (mock_run.call_args[1] or {})
 
     def test_graphql_query_includes_is_outdated(self) -> None:
-        """GraphQL query must request isOutdated so the processor can skip
+        """GraphQL query must request isOutdated so the reviewer can skip
         threads where the commented code has changed."""
         client = GitHubClient(repo="owner/repo")
         mock_result = MagicMock()
@@ -570,7 +570,7 @@ class TestCommentOnIssue:
 
 
 class TestRepoWithMultipleSlashes:
-    """Bug 26: repos with multiple slashes (e.g. 'org/repo/extra') pass the
+    """Repos with multiple slashes (e.g. 'org/repo/extra') pass the
     '/' check but split(/, 1) gives wrong repo_name for GraphQL."""
 
     def test_review_threads_multi_slash_returns_empty(self) -> None:

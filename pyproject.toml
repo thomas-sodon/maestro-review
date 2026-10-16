@@ -8,15 +8,20 @@ license-files = ["LICENSE"]
 authors = [{ name = "Thomas Sodon" }]
 requires-python = ">=3.11"
 dependencies = [
-    "claude-agent-sdk>=0.2.149",
+    "claude-agent-sdk>=0.2.149,<0.3",
 ]
+keywords = ["code-review", "github", "pull-request", "claude", "ai", "github-action"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
 ]
 
 [project.urls]
 Homepage = "https://github.com/thomas-sodon/maestro-review"
+Issues = "https://github.com/thomas-sodon/maestro-review/issues"
 "Parent project" = "https://github.com/thomas-sodon/maestro-agent"
 
 [project.optional-dependencies]
@@ -25,7 +30,6 @@ dev = [
     "pytest-asyncio",
     "pytest-cov",
     "pytest-timeout>=2.3.0",
-    "httpx",
     "ruff>=0.4.0",
     "mypy>=1.10.0",
 ]

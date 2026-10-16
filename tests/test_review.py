@@ -709,10 +709,13 @@ def test_build_review_payload_mixed() -> None:
 
 
 def test_build_review_payload_disclaimer() -> None:
-    """Review body always contains the advisory disclaimer."""
+    """Review body always ends with the footer naming the tool and the gate."""
     reviewer = _reviewer()
     payload = reviewer._build_review_payload([], {}, "All good")
-    assert "advisory only" in payload["body"].lower()
+    assert payload["body"].endswith(
+        "*AI-generated review by maestro-review — new findings fail this check*",
+    )
+    assert "advisory only" not in payload["body"].lower()
 
 
 def test_build_review_payload_overflow_sentinel_wrapping() -> None:
@@ -759,7 +762,7 @@ def test_build_review_payload_overflow_sentinel_wrapping() -> None:
 
 def test_overflow_fingerprint_survives_title_rewording() -> None:
     """The ``of-<hash>`` fingerprint is deterministic for an identical finding
-    and — per issue #3326 — is unchanged by a reworded LLM-authored title."""
+    and is unchanged by a reworded LLM-authored title."""
     finding = ReviewFinding(
         file="a.py", line=7, severity="bug", title="Race condition",
         description="d", fix_plan="f",
@@ -833,8 +836,8 @@ def test_legacy_title_keyed_ack_still_matches() -> None:
 
 def test_coarse_keyed_ack_suppresses_legacy_rendered_finding() -> None:
     """An ack posted under the *coarse* handle must also answer the copy of that
-    finding surviving the union from a pre-#3326 legacy block, whose embedded
-    handle is title-derived — otherwise the answered finding reads as unreplied."""
+    finding surviving the union from a legacy block, whose embedded handle is
+    title-derived — otherwise the answered finding reads as unreplied."""
     host = MagicMock()
     host.get_pr_review_threads.return_value = []
     reviewer = _reviewer(host)
@@ -924,7 +927,7 @@ def _overflow_body(*lines: str) -> str:
     """Assemble a review body carrying the sentinel-delimited block of *lines*.
 
     Renders the block directly so a test can embed an arbitrary ``of-<hash>``
-    handle — including a pre-#3326 title-derived one, which nothing emits any
+    handle — including a legacy title-derived one, which nothing emits any
     more and so cannot be produced via ``_build_review_payload``.
     """
     return (
@@ -936,10 +939,11 @@ def _overflow_body(*lines: str) -> str:
 
 
 def test_union_overflow_collapses_legacy_title_derived_renderings() -> None:
-    """A PR reviewed across the #3326 identity change carries a *different*
-    embedded handle per legacy block for the same still-open finding.  Keying the
-    union on those raw handles reported the finding once per historical review;
-    the canonical key collapses them onto the current coarse handle."""
+    """A PR reviewed across the move from title-derived to site-derived identity
+    carries a *different* embedded handle per legacy block for the same
+    still-open finding.  Keying the union on those raw handles reported the
+    finding once per historical review; the canonical key collapses them onto
+    the current coarse handle."""
     host = MagicMock()
     host.get_pr_review_threads.return_value = []
     host.get_pr_comment_bodies.return_value = []
@@ -948,7 +952,7 @@ def test_union_overflow_collapses_legacy_title_derived_renderings() -> None:
     finding = ReviewFinding(file="a.py", line=7, severity="bug",
                             title="Race condition", description="d", fix_plan="f")
     coarse = _overflow_fingerprint(finding)
-    # Two pre-#3326 blocks whose embedded handles are the title-derived keys of
+    # Two legacy blocks whose embedded handles are the title-derived keys of
     # two re-wordings of one finding, then the current block's coarse handle.
     legacy_one = _legacy_overflow_fingerprint(finding)
     legacy_two = _legacy_overflow_fingerprint(
@@ -1023,7 +1027,7 @@ def test_union_overflow_keeps_widest_block_for_a_handle() -> None:
 
 def test_parse_overflow_findings_round_trips_payload_all_severities() -> None:
     """The reader extracts exactly the overflow lines the writer renders, across
-    every severity (the core reader keeps only bugs)."""
+    every severity (a downstream consumer may keep only bugs)."""
     reviewer = _reviewer()
     findings = [
         ReviewFinding(file="a.py", line=0, severity="bug",
@@ -1047,8 +1051,8 @@ def test_parse_overflow_findings_round_trips_payload_all_severities() -> None:
 
 
 def test_parse_overflow_findings_acceptance_two_findings_one_ack() -> None:
-    """Step 2 acceptance: two overflow lines parse to two findings; an ack comment
-    acking one fingerprint yields an ack set of size one."""
+    """Two overflow lines parse to two findings; an ack comment acking one
+    fingerprint yields an ack set of size one."""
     reviewer = _reviewer()
     findings = [
         ReviewFinding(file="a.py", line=0, severity="bug",
@@ -1146,8 +1150,8 @@ def test_parse_overflow_ack_requires_terminal_marker() -> None:
     NOT treated as answered — only the terminal-marked handle is collected.
 
     Guards the leniency the reviewer flagged: were every co-occurring handle
-    acked, the planned reply-coverage gate would pass an overflow finding that was
-    never closed (a quoted, in-progress, or prose handle)."""
+    acked, the reply-coverage gate would pass an overflow finding that was never
+    closed (a quoted, in-progress, or prose handle)."""
     body = (
         f"Re-running remediation.\n{_OVERFLOW_ACK_SENTINEL}\n"
         "of-aaaaaaaa — Fixed automatically\n"
@@ -1165,10 +1169,9 @@ def test_parse_overflow_ack_collects_only_first_handle_per_line() -> None:
     FIRST handle — the one the roll-up keyed the verdict to — not a handle merely
     quoted inside the verdict text.
 
-    Guards parity with the core consumer ``_acknowledged_overflow_fingerprints``,
-    which uses ``.search()`` (first match only).  Collecting every handle is the
-    unsafe direction: the quoted ``of-bbbbbbbb`` was never closed, so treating it as
-    answered would let the planned reply-coverage gate pass an unaddressed finding."""
+    Collecting every handle is the unsafe direction: the quoted ``of-bbbbbbbb``
+    was never closed, so treating it as answered would let the reply-coverage
+    gate pass an unaddressed finding."""
     body = (
         f"{_OVERFLOW_ACK_SENTINEL}\n"
         "of-aaaaaaaa — Fixed automatically (was a dup of of-bbbbbbbb)\n"
@@ -1979,8 +1982,8 @@ def test_categorize_api_failure() -> None:
 # ------------------------------------------------------------------
 
 
-def test_post_review_unresolves_and_replies() -> None:
-    """Resolved bug thread without issue link is unreolved + replied to."""
+def test_post_review_replies_on_resolved_thread() -> None:
+    """Resolved bug thread without issue link gets a "defect persists" reply."""
     host = MagicMock()
     host.list_issues.return_value = []
     host.get_pr_review_threads.return_value = [
@@ -2088,15 +2091,14 @@ def test_post_review_mixed_new_and_reopen() -> None:
 
 
 # ------------------------------------------------------------------
-# find_unreplied_comments (Step 3 — reply-coverage audit)
+# find_unreplied_comments — reply-coverage audit
 # ------------------------------------------------------------------
 
 
 def test_find_unreplied_comments_acceptance_matrix() -> None:
-    """Step 3 acceptance: across a replied AI thread, a bare AI thread, a resolved
-    bare thread, and a non-AI root — plus one acked and one un-acked overflow
-    finding — the report contains exactly the bare AI thread and the un-acked
-    finding."""
+    """Across a replied AI thread, a bare AI thread, a resolved bare thread, and
+    a non-AI root — plus one acked and one un-acked overflow finding — the
+    report contains exactly the bare AI thread and the un-acked finding."""
     host = MagicMock()
     bare = ReviewFinding(file="a.py", line=1, severity="bug",
                          title="Bare unreplied bug", description="d", fix_plan="f")
@@ -2149,8 +2151,8 @@ def test_find_unreplied_comments_acceptance_matrix() -> None:
 
 
 def test_find_unreplied_comments_outdated_thread_exempt() -> None:
-    """An outdated bare AI thread is exempt (matches human-paced comment-remediation
-    eligibility), so it is not reported."""
+    """An outdated bare AI thread is exempt (a comment-remediation run does not
+    act on it either), so it is not reported."""
     host = MagicMock()
     finding = ReviewFinding(file="a.py", line=1, severity="bug",
                             title="Outdated bug", description="d", fix_plan="f")
@@ -2206,7 +2208,7 @@ def test_find_unreplied_comments_fails_closed_on_connectivity_outage() -> None:
 
 def test_find_unreplied_comments_unions_overflow_bodies() -> None:
     """When several reviews carry an overflow block, every one contributes — the
-    block is non-cumulative, so an older body's finding is still open (#3326)."""
+    block is non-cumulative, so an older body's finding is still open."""
     host = MagicMock()
     host.get_pr_review_threads.return_value = []
     host.get_pr_comment_bodies.return_value = []

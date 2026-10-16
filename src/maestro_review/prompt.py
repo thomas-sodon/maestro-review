@@ -1,9 +1,9 @@
 """Code review prompt template for the Claude Agent SDK."""
 
 CODE_REVIEW_PROMPT = """\
-You are reviewing a pull request for the Maestro project — a self-evolving
-autonomous AI agent. Your role is to identify actual defects in the code:
-bugs, logic errors, security issues, and missing error handling.
+You are reviewing a GitHub pull request. Your role is to identify actual
+defects in the code: bugs, logic errors, security issues, and missing error
+handling.
 
 You have access to Read, Glob, and Grep tools to explore the full codebase
 for context when the diff alone is insufficient.

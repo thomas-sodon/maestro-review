@@ -12,7 +12,7 @@ from maestro_review.sdk import QueryResult, _truncate
 
 
 class TestTruncateEdgeCases:
-    """Bug 46: _truncate crashes on max_len <= 0."""
+    """_truncate must not crash on max_len <= 0."""
 
     def test_truncate_zero_max_len(self) -> None:
         """max_len=0 should return empty string, not crash."""
@@ -24,7 +24,7 @@ class TestTruncateEdgeCases:
 
 
 class TestParseJsonFencedBlockFallthrough:
-    """Bug 47: parse_json doesn't fall through on fenced code block failure."""
+    """parse_json falls through when a fenced code block fails to parse."""
 
     def test_fenced_block_invalid_json_falls_through_to_bracket(self) -> None:
         """If fenced block has invalid JSON, should fall through to bracket extraction."""
@@ -42,7 +42,7 @@ class TestParseJsonFencedBlockFallthrough:
 
 
 class TestCostDisplayZero:
-    """Bug 48: cost_str shows 'N/A' when total_cost_usd is 0.0."""
+    """cost_str must not show 'N/A' when total_cost_usd is 0.0."""
 
     @pytest.mark.asyncio
     async def test_zero_cost_logged_correctly(

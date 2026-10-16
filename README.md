@@ -21,8 +21,10 @@ opens. It has no dependency on Maestro and works on any GitHub repository.
    context). Findings come back with a severity: `bug`, `suggestion` or `nit`.
 3. Before posting, it de-duplicates against the PR's state:
    - findings already tracked by an open GitHub issue are dropped;
-   - findings matching an existing review thread are skipped, or the thread is
-     reopened if it was resolved without an issue link but the problem is still there;
+   - findings matching an existing review thread are skipped — except a
+     bug-severity finding whose thread was resolved without an issue link while
+     the problem is still there: the thread stays resolved, but the reviewer
+     replies on it that the defect persists;
    - findings on a thread where someone replied *"Could not prove this defect"*
      are escalated to a GitHub issue (labels `ai-review` and the severity)
      instead of being re-posted.
@@ -87,8 +89,8 @@ no effect and no diff review is run.
 
 | Mode | Exit `0` | Exit `1` |
 |---|---|---|
-| Review (default) | Nothing new was posted: no findings, an empty diff, or every finding was already tracked by an issue, escalated to an issue, or matched an existing thread that is still open (or was resolved with an issue link) | At least one finding (any severity) was newly posted or a resolved thread was reopened; **or** the review failed (API/SDK error); **or** posting the review failed (findings are then printed to the log) |
-| `--dry-run` | No finding would be posted or reopened after the same issue/thread filtering a real run applies | At least one finding would be posted or reopened (if the filtering itself errors, any raw finding counts); **or** the review failed |
+| Review (default) | Nothing new was posted: no findings, an empty diff, or every finding was already tracked by an issue, escalated to an issue, or matched an existing thread that is still open (or was resolved with an issue link) | At least one finding (any severity) was newly posted, or a bug was flagged as persisting with a reply on its resolved thread; **or** the review failed (API/SDK error); **or** posting the review failed (findings are then printed to the log) |
+| `--dry-run` | No finding would be posted or flagged as persisting after the same issue/thread filtering a real run applies | At least one finding would be posted or flagged as persisting (if the filtering itself errors, any raw finding counts); **or** the review failed |
 | `--require-comment-replies` | Every reviewer finding has been answered | At least one unanswered finding; **or** the audit could not read the PR (a `gh`/GraphQL outage fails closed) |
 
 Invalid or missing arguments exit `2` (standard `argparse` behaviour).
@@ -132,13 +134,15 @@ back to its default.
 `MAESTRO_REVIEW_GH_TIMEOUT`, `MAESTRO_REVIEW_REQUIRE_COMMENT_REPLIES`
 (integers; blank or non-integer values are ignored).
 
-The model and effort are fixed in `maestro_review/sdk.py` (`REVIEW_MODEL`,
+The model and effort are fixed in `src/maestro_review/sdk.py` (`REVIEW_MODEL`,
 `REVIEW_EFFORT`).
 
 ## GitHub Action
 
-The repository ships a composite action. Store an `ANTHROPIC_API_KEY` (or a
-`CLAUDE_CODE_OAUTH_TOKEN`) as a repository secret, then:
+The repository ships a composite action. It calls the `gh` CLI, which
+GitHub-hosted runners already provide; on a self-hosted runner, install it
+first. Store an `ANTHROPIC_API_KEY` (or a `CLAUDE_CODE_OAUTH_TOKEN`) as a
+repository secret, then:
 
 ```yaml
 name: AI review
@@ -183,6 +187,15 @@ jobs:
 The step's exit status is the CLI's exit code, so the job fails exactly when
 the table under [Exit codes](#exit-codes) says it does. Pull requests from
 forks do not receive repository secrets, so the review step cannot run there.
+
+The action runs `actions/setup-python`, which puts the chosen `python-version`
+on the job's `PATH`, so later steps in the same job use that Python too. Run
+the action last, or set up your own Python again after it, if that matters.
+
+The examples use `@main` because no release is tagged yet. Since the action
+receives an Anthropic credential, pin it to a full commit SHA in your own
+workflows (`uses: thomas-sodon/maestro-review@<commit-sha>`) so a later change
+to `main` cannot run with your secret unreviewed.
 
 ## Development
 
